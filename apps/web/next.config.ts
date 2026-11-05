@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 
 // Env is loaded from the repo-root .env by scripts/next.mjs, not here.
 const nextConfig: NextConfig = {
+  experimental: {
+    agentUpgrade: "security",
+  },
   cacheComponents: true,
   partialPrefetching: true,
   // Workspace packages ship TypeScript source.
