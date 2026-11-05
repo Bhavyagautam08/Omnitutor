@@ -21,6 +21,10 @@ The service reads the repository-root `.env`. It uses the existing `DATABASE_URL
 Python service performs no DDL. It maps the existing `Learner`, `Course`, `Source`, and `Chunk`
 tables with SQLAlchemy 2.x and asyncpg.
 
+The Python service adapts `DATABASE_URL` for asyncpg by removing Prisma's `schema` option and the
+PostgreSQL `channel_binding` option, which asyncpg does not support. Other connection options,
+including Neon `sslmode=require`, are retained.
+
 Set `SESSION_SECRET` to the same value for both services (minimum 32 characters). If unset, Python
 reads the same `data/cache/session-secret` file used by the TypeScript session code. It does not
 create a different secret and fails closed if no shared secret is available. `APP_GEMINI_API_KEY`

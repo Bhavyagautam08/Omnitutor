@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         url = make_url(self.database_url)
         query = dict(url.query)
         query.pop("schema", None)
+        query.pop("channel_binding", None)
         return url.set(drivername="postgresql+asyncpg", query=query).render_as_string(hide_password=False)
 
 
