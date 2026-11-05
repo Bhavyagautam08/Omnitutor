@@ -53,13 +53,17 @@ configuration.
 For the Python service, from `services/api`:
 
 ```powershell
-uv sync --frozen --no-dev
-uv run uvicorn app.main:app --host 0.0.0.0 --port $env:PORT
+uv sync --active --frozen --no-dev
+uv run --active uvicorn app.main:app --host 0.0.0.0 --port $env:PORT
 ```
 
-Set the hosting service's port variable as appropriate for its shell/runtime. The API exposes
-`/health/live` and `/health/ready`; use `/health/ready` as its readiness check. The web service has
-`/api/health`.
+For Render, set the service root directory to `services/api`, the build command to
+`pip install uv && uv sync --active --frozen --no-dev`, and the start command to
+`uv run --active uvicorn app.main:app --host 0.0.0.0 --port $PORT`. `--active` tells uv to use
+Render's activated environment instead of creating a second `.venv` under the service directory.
+Set `/health/ready` as the health check path. The API checks PostgreSQL and Qdrant during startup,
+so connection failures appear in the service logs and prevent it from becoming ready. The web
+service has `/api/health`.
 
 ## Initial provisioning order
 
