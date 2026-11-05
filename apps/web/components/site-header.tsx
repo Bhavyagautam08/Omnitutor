@@ -3,7 +3,7 @@
 // account menu. Below lg it collapses into a menu button with a full-width panel.
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLearner } from "@/components/learner";
 import { NotebookSwitcher } from "@/components/notebook-switcher";
 
@@ -17,8 +17,11 @@ const NAV = [
 ] as const;
 
 const isActive = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
+const subscribeToHydration = () => () => {};
+const getHydratedSnapshot = () => true;
+const getServerHydrationSnapshot = () => false;
 
-function AccountMenu({ onNavigate }: { onNavigate?: () => void }) {
+function AccountMenu({ hydrated, onNavigate }: { hydrated: boolean; onNavigate?: () => void }) {
   const { learner, ready, signOut } = useLearner();
   const router = useRouter();
   const pathname = usePathname();
@@ -38,7 +41,7 @@ function AccountMenu({ onNavigate }: { onNavigate?: () => void }) {
     };
   }, [open]);
 
-  if (!ready) return <span className="h-9 w-24 animate-pulse rounded-full bg-surface" aria-hidden="true" />;
+  if (!hydrated || !ready) return <span className="h-9 w-24 animate-pulse rounded-full bg-surface" aria-hidden="true" />;
   if (!learner) {
     return (
       <Link
@@ -98,6 +101,7 @@ export function SiteHeader() {
   const pathname = usePathname();
   const { learner } = useLearner();
   const [menu, setMenu] = useState(false);
+  const hydrated = useSyncExternalStore(subscribeToHydration, getHydratedSnapshot, getServerHydrationSnapshot);
   const close = () => setMenu(false);
 
   return (
@@ -128,8 +132,8 @@ export function SiteHeader() {
         </nav>
 
         <div className="ml-auto hidden items-center gap-3 lg:flex">
-          {learner && <NotebookSwitcher />}
-          <AccountMenu />
+          {hydrated && learner && <NotebookSwitcher />}
+          <AccountMenu hydrated={hydrated} />
         </div>
 
         <button
@@ -163,8 +167,8 @@ export function SiteHeader() {
             })}
           </ul>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            {learner && <NotebookSwitcher />}
-            <AccountMenu onNavigate={close} />
+            {hydrated && learner && <NotebookSwitcher />}
+            <AccountMenu hydrated={hydrated} onNavigate={close} />
           </div>
         </div>
       )}

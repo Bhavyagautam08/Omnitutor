@@ -6,6 +6,9 @@ This document is the shared reference for both teammates. The design is frozen: 
 
 > **Implementation status (audited against the code, 2026-10-14).** Everything below describes the code as built.
 > Where the build differs from the original plan, §0 says how and why; nothing planned is described as built.
+> The additive Python retrieval service is described in [services/api/README.md](../services/api/README.md);
+> deployment constraints and service environment variables are in [DEPLOYMENT.md](DEPLOYMENT.md) and
+> [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
 
 ---
 
@@ -72,6 +75,8 @@ How it is judged: KB & Grounding 20 · Assessment 15 · Personalization 20 · UX
 |---|---|
 | One Next.js process run locally, no serverless | Ingestion runs for minutes; serverless timeouts would kill it. Live deployment isn't required. |
 | No worker or queue | `POST /api/sources` starts ingestion without awaiting it; the UI polls `Source.status`. That's enough for a demo. |
+| Python retrieval is an additive service (`services/api`) | Authenticated search uses Gemini query embeddings and Qdrant, then re-fetches canonical content and ownership from PostgreSQL. It does not replace Prisma migrations or the TypeScript ingestion pipeline. |
+| Hosted deployment is not production-ready | Originals use local disk and ingestion is an in-process background task; see [DEPLOYMENT.md](DEPLOYMENT.md) for the hosting constraints. |
 | Postgres only, no pgvector | Embeddings are stored as `Float[]` and cosine is computed in JS. A few thousand chunks fit easily in memory. |
 | `packages/core/src/llm.ts` is the only Gemini caller | One place for the rate limiter, cache, retries, key rotation, model fallback, request timeout, Zod validation, typed errors and model selection. It passes `apiKey` explicitly from `APP_GEMINI_API_KEY(S)`; the SDK would otherwise fall back to a machine-wide `GEMINI_API_KEY`. The SDK's own HTTP retries stay off (we never set `retryOptions`), so every request is counted by our limiter. |
 | Originals kept in `data/uploads/` | Citations open the real file. Gemini Files API uploads expire after 48 h, but our copies don't. |
@@ -149,8 +154,9 @@ multimodal/
 │  └─ sim/                         simulated students (teammate, Module 15)
 ├─ data/uploads/                   uploaded originals (gitignored)
 ├─ data/cache/                     Gemini result cache + usage.json ledger (gitignored)
+├─ services/api/                   Python FastAPI retrieval + Qdrant indexing service
 ├─ data/demo/                      demo dataset (gitignored, except README)
-├─ docs/                           ARCHITECTURE · PROGRESS · API_SPEC · INGESTION_SPEC · INTEGRATION_AUDIT · TEAMMATE_BRIEF · postman/
+├─ docs/                           ARCHITECTURE · DEPLOYMENT · ENVIRONMENT_VARIABLES · PROGRESS · API_SPEC · INGESTION_SPEC · INTEGRATION_AUDIT · TEAMMATE_BRIEF · postman/
 ├─ docker-compose.yml              Postgres only, host port 5434
 ├─ turbo.json   package.json   tsconfig.base.json
 ├─ .env.example                    copy to .env (ONE env file for the whole repo)

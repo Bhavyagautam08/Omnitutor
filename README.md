@@ -16,7 +16,8 @@ Upload a lecture **video**, a **textbook PDF** and a **slide deck**. Omnitutor t
 ## Prerequisites
 
 - **Node.js** ≥ 20.12 (developed on 24) and npm
-- **Docker Desktop**, which runs PostgreSQL only
+- **Python** ≥ 3.12 and [uv](https://docs.astral.sh/uv/)
+- **Docker Desktop**, which runs PostgreSQL and local Qdrant
 - A **Gemini API key** from [Google AI Studio](https://aistudio.google.com/apikey). The free tier works.
 
 ## Setup and run
@@ -25,12 +26,35 @@ Upload a lecture **video**, a **textbook PDF** and a **slide deck**. Omnitutor t
 npm install
 cp .env.example .env        # then set APP_GEMINI_API_KEY (or several keys, see below) and the model IDs
 npm run db:up               # PostgreSQL on localhost:5434
+docker compose --profile vector up -d qdrant
 npm run db:deploy           # apply the database migrations
 npm run db:seed             # optional: shared demo course used by the eval tools and tests
-npm run dev                 # http://localhost:3000
+```
+
+Set up and start the Python API:
+
+```powershell
+Set-Location services\api
+uv sync --extra dev
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8012 --reload
+```
+
+The root `.env.example` configures the local Python API and Qdrant URLs. For a minimal setup, also
+set `SESSION_SECRET` to a random value of at least 32 characters; both services must use the same
+secret. See [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) for which variables
+belong on each service.
+
+Start the web app in another terminal from the repository root:
+
+```bash
+npm run dev
 ```
 
 Production mode: `npm run build && npm run start -w @sc/web`.
+
+**Deployment status:** the current app uses local disk for uploaded originals and in-process
+background ingestion, so serverless/ephemeral deployments are not supported and it is not ready for
+unattended public production use. Read [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) before hosting it.
 
 Then open http://localhost:3000, **create an account** and answer the four onboarding questions. Sample material: use any lecture PDF, `.pptx` deck and `.mp4` (up to 20 min) of your own. Our evaluation files are third-party course material and are not redistributed ([data/demo/README.md](data/demo/README.md)).
 
@@ -52,6 +76,12 @@ Windows: stop the dev server before `npm install` or `npm run db:generate` (Pris
 | `SESSION_SECRET` | optional, ≥32 chars; signs login cookies. If unset, a random secret is generated once into `data/cache/session-secret` |
 | `REFUSAL_TAU` | retrieval similarity floor below which the tutor declines without calling the LLM (we use 0.60) |
 | `COURSE_NAME` | name of the default course; it's given to every prompt as context |
+| `PYTHON_API_URL` | HTTPS origin of the Python retrieval API in deployment; loopback HTTP for local development |
+| `QDRANT_URL` / `QDRANT_API_KEY` | Qdrant endpoint and optional access key; used by the Python API |
+| `QDRANT_COLLECTION` / `QDRANT_VECTOR_SIZE` | Python vector collection and dimensions (768) |
+
+The complete web/Python environment-variable map is in
+[docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md).
 
 ## Using it
 
@@ -99,8 +129,16 @@ flowchart TB
 
   CORE --> DB[("PostgreSQL (Prisma)")]
   CORE --> GEM["Gemini API<br/>generation · embeddings · Files API"]
+  CORE -. retrieval .-> PY["Python FastAPI"]
+  PY --> DB
+  PY --> GEM
+  PY --> QD[("Qdrant<br/>768-dimensional vectors")]
 ```
 
+- **Python retrieval (incremental backend):** the web service forwards authenticated notebook
+  searches to the Python API; Python embeds the query and searches Qdrant, then rechecks ownership,
+  source readiness, chunk text, and citations against PostgreSQL. See
+  [services/api/README.md](services/api/README.md).
 - **Ingestion is multimodal, with no manual preprocessing.**
   - **PDF:** each page goes to Gemini as an image + text, so scanned and image-only pages and figures work. Figures become their own cited chunks.
   - **PPTX:** slide order and exact text, tables, SmartArt and speaker notes come straight from the file's XML. Pictures go to Gemini for descriptions. One chunk per slide.
@@ -121,7 +159,7 @@ flowchart TB
   - **one grading per quiz:** a submit claims the quiz atomically, so a double click or a second tab can't grade it twice.
 - **Topics, concepts and prerequisites:** the course build groups the material into 5–8 topics with prerequisite links; each topic lists its concepts (subtopics), merged from the concept labels found during ingestion, each linked to where it is taught. Sources added later are tagged to the nearest existing topic automatically (rebuild to re-plan the topics).
 
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API contract: [docs/API_SPEC.md](docs/API_SPEC.md) · ingestion: [docs/INGESTION_SPEC.md](docs/INGESTION_SPEC.md) · every test run with its numbers: [docs/PROGRESS.md](docs/PROGRESS.md).
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · deployment: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · environment variables: [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) · API contract: [docs/API_SPEC.md](docs/API_SPEC.md) · ingestion: [docs/INGESTION_SPEC.md](docs/INGESTION_SPEC.md) · every test run with its numbers: [docs/PROGRESS.md](docs/PROGRESS.md).
 
 ## Evaluation (team-built test sets, real Gemini)
 
@@ -172,6 +210,7 @@ Off-material: **17 of 21 declined**; the other 4 (numerical problems for algorit
 |---|---|
 | `apps/web` | Next.js pages (`/`, `/login`, `/onboarding`, `/sources`, `/tutor`, `/quiz`, `/quiz/[id]/report`, `/dashboard`, `/map`, `/flashcards`, `/evaluation`) and API routes |
 | `packages/core` | ingestion, Gemini client (rate limiter, cache, key rotation), retrieval, course build, tutor, quiz, grading, BKT, mastery |
+| `services/api` | Python FastAPI service for authenticated Qdrant-backed notebook retrieval and vector indexing |
 | `packages/db` | Prisma schema, migration, seed |
 | `packages/schemas` | shared Zod contract for every request and response |
 | `packages/client` | typed API client used by the UI and the tools |

@@ -52,6 +52,11 @@ export function sessionOf(req: NextRequest): string | null {
   return readSession(req.cookies.get(SESSION_COOKIE)?.value, sessionSecret());
 }
 
+/** The signed cookie value for forwarding to the trusted Python retrieval service. */
+export function sessionTokenOf(req: NextRequest): string | null {
+  return req.cookies.get(SESSION_COOKIE)?.value ?? null;
+}
+
 /** Sets (token) or clears (null) the session cookie on a response. HttpOnly; Secure when served over HTTPS. */
 export function withSession(res: Response, req: NextRequest, token: string | null): Response {
   const secure = req.nextUrl.protocol === "https:" ? "; Secure" : "";

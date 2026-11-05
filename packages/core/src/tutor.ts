@@ -162,6 +162,7 @@ async function answerCore(input: {
   question: string;
   courseId: string;
   learnerId: string | null;
+  sessionToken?: string;
   history: { role: "USER" | "ASSISTANT"; content: string }[];
   cache: boolean;
 }): Promise<Core> {
@@ -176,7 +177,11 @@ async function answerCore(input: {
   // Short follow-ups ("why?", "explain more") are retrieved together with the previous question.
   const lastUser = [...input.history].reverse().find((h) => h.role === "USER")?.content;
   const query = lastUser && input.question.trim().split(/\s+/).length < 6 ? `${lastUser}\n${input.question}` : input.question;
-  const { results, topScore } = await retrieve(query, { courseId: input.courseId, k: TUTOR_K });
+  const { results, topScore } = await retrieve(query, {
+    courseId: input.courseId,
+    k: TUTOR_K,
+    sessionToken: input.sessionToken,
+  });
   const citations = results.map((r) => toCitation(r));
   const note = refusalText(topics.map((t) => t.name));
 
@@ -205,13 +210,20 @@ async function answerCore(input: {
 const plainText = (blocks: TutorBlock[]) => blocks.map((b) => b.text).join("\n\n");
 
 /** POST /api/chat: one tutor turn for a learner (stored, with mastery updates from chat evidence). */
-export async function chat(req: ChatRequest): Promise<TutorAnswer> {
+export async function chat(req: ChatRequest, sessionToken?: string): Promise<TutorAnswer> {
   await requireLearner(req.learnerId);
   const courseId = await requireCourse(req.courseId);
   const history = (
     await prisma.chatMessage.findMany({ where: { learnerId: req.learnerId, courseId }, orderBy: { createdAt: "desc" }, take: HISTORY_TURNS, select: { role: true, content: true } })
   ).reverse();
-  const a = await answerCore({ question: req.message, courseId, learnerId: req.learnerId, history, cache: false });
+  const a = await answerCore({
+    question: req.message,
+    courseId,
+    learnerId: req.learnerId,
+    sessionToken,
+    history,
+    cache: false,
+  });
 
   // Stored only once answered: a failed turn (e.g. Gemini down) leaves no unanswered question behind.
   const userMsg = await prisma.chatMessage.create({ data: { learnerId: req.learnerId, courseId, role: "USER", content: req.message } });
@@ -248,9 +260,20 @@ export async function chatHistory(learnerId: string, courseId?: string): Promise
 }
 
 /** POST /api/eval/answer: the same pipeline with no learner and no writes; cached so eval re-runs are free. */
-export async function answerForEval(question: string, courseId?: string): Promise<EvalAnswerResponse> {
+export async function answerForEval(
+  question: string,
+  courseId?: string,
+  sessionToken?: string,
+): Promise<EvalAnswerResponse> {
   const id = await requireCourse(courseId);
-  const a = await answerCore({ question, courseId: id, learnerId: null, history: [], cache: true });
+  const a = await answerCore({
+    question,
+    courseId: id,
+    learnerId: null,
+    sessionToken,
+    history: [],
+    cache: true,
+  });
   const citations: Citation[] = [];
   for (const b of a.blocks) for (const c of b.citations) if (!citations.some((x) => x.chunkId === c.chunkId)) citations.push(c);
   return { answer: plainText(a.blocks), blocks: a.blocks, contexts: a.retrieved.map((r) => r.content), citations, refused: a.refused, coverage: a.coverage, topScore: a.topScore };

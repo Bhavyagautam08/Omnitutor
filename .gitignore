@@ -21,6 +21,9 @@ next-env.d.ts
 # python
 __pycache__/
 .venv/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
 
 # misc
 .DS_Store

@@ -7,6 +7,7 @@ import { nearestTopic } from "../build";
 import { sha256File } from "../cache";
 import { AppError, LlmError, notFound, notReady } from "../errors";
 import { embed as geminiEmbed, type EmbedTask } from "../llm";
+import { synchronizeSourceWithPython } from "../pythonApi";
 import { resolveSourcePath } from "../storage";
 import { embedText, extractPdf, type ExtractPage } from "./pdf";
 import { SLIDES_PER_BATCH, extractPptx, type DeckReport, type ExtractSlides } from "./pptx";
@@ -48,7 +49,11 @@ const unitsFor = (s: Source) =>
  * Validates and marks the source PROCESSING, then starts the job. The returned `job` never
  * rejects: failures are recorded as status FAILED with a readable `error`.
  */
-export async function requestIngestion(sourceId: string, deps: IngestDeps = {}): Promise<{ response: UploadResponse; job: Promise<IngestResult> }> {
+export async function requestIngestion(
+  sourceId: string,
+  deps: IngestDeps = {},
+  sessionToken?: string,
+): Promise<{ response: UploadResponse; job: Promise<IngestResult> }> {
   const source = await prisma.source.findUnique({ where: { id: sourceId } });
   if (!source) throw notFound(`Source "${sourceId}" not found.`);
   if (!SUPPORTED.includes(source.type)) {
@@ -65,14 +70,18 @@ export async function requestIngestion(sourceId: string, deps: IngestDeps = {}):
     running.delete(sourceId);
     throw e;
   }
-  const job = runIngestion(sourceId, deps).finally(() => running.delete(sourceId));
+  const job = runIngestion(sourceId, deps, sessionToken).finally(() => running.delete(sourceId));
   return { response: { id: sourceId, status: "PROCESSING" }, job };
 }
 
 export type IngestResult = { ok: true; chunks: number; stats: IngestStats; video?: SegmentReport; deck?: DeckReport } | { ok: false; error: string };
 
 /** The job: extract (per type) → embed → replace the source's chunks atomically → READY (or FAILED). */
-export async function runIngestion(sourceId: string, deps: IngestDeps = {}): Promise<IngestResult> {
+export async function runIngestion(
+  sourceId: string,
+  deps: IngestDeps = {},
+  sessionToken?: string,
+): Promise<IngestResult> {
   const embed = deps.embed ?? geminiEmbed;
   const step = () => prisma.source.update({ where: { id: sourceId }, data: { progressDone: { increment: 1 } } }).then(() => {});
   try {
@@ -120,8 +129,22 @@ export async function runIngestion(sourceId: string, deps: IngestDeps = {}): Pro
     await prisma.$transaction([
       prisma.chunk.deleteMany({ where: { sourceId } }),
       prisma.chunk.createMany({ data: chunks.map((c, seq) => ({ sourceId, seq, ...c, embedding: vectors[seq], topicId: topicOf[seq] ?? null })) }),
-      prisma.source.update({ where: { id: sourceId }, data: { status: "READY", error: null, progressDone: stats.units, progressTotal: stats.units } }),
+      prisma.source.update({ where: { id: sourceId }, data: { status: "PROCESSING", error: null, progressDone: stats.units, progressTotal: stats.units } }),
     ]);
+    if (sessionToken) {
+      const indexed = await synchronizeSourceWithPython({
+        notebookId: source.courseId,
+        sourceId,
+        sessionToken,
+      });
+      if (indexed !== chunks.length) {
+        throw new Error(`Python indexed ${indexed} vectors for ${chunks.length} canonical chunks.`);
+      }
+    }
+    await prisma.source.update({
+      where: { id: sourceId },
+      data: { status: "READY", error: null, progressDone: stats.units, progressTotal: stats.units },
+    });
     console.info(`[ingest] ${sourceId} (${source.type}): READY, ${chunks.length} chunks · ${stats.geminiCalls} Gemini calls, ${stats.cached} cached, ${stats.inputTokens} input tokens`);
     return { ok: true, chunks: chunks.length, stats, ...(video && { video }), ...(deck && { deck }) };
   } catch (e) {

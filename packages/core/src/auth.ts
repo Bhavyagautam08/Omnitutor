@@ -145,15 +145,18 @@ export async function ownCourse(learnerId: string): Promise<string> {
     const active = await prisma.course.findFirst({ where: { id: learner.activeCourseId, ownerId: learnerId }, select: { id: true } });
     if (active) return active.id;
   }
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${learnerId}))`;
-    const newest = await tx.course.findFirst({ where: { ownerId: learnerId }, orderBy: { createdAt: "desc" }, select: { id: true } });
-    // A clean, generic first notebook: nothing is inherited from the shared evaluation course.
-    const name = FIRST_NOTEBOOK_NAME;
-    const id = newest?.id ?? (await tx.course.create({ data: { name, ownerId: learnerId }, select: { id: true } })).id;
-    await tx.learner.update({ where: { id: learnerId }, data: { activeCourseId: id } });
-    return id;
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${learnerId}))`;
+      const newest = await tx.course.findFirst({ where: { ownerId: learnerId }, orderBy: { createdAt: "desc" }, select: { id: true } });
+      // A clean, generic first notebook: nothing is inherited from the shared evaluation course.
+      const name = FIRST_NOTEBOOK_NAME;
+      const id = newest?.id ?? (await tx.course.create({ data: { name, ownerId: learnerId }, select: { id: true } })).id;
+      await tx.learner.update({ where: { id: learnerId }, data: { activeCourseId: id } });
+      return id;
+    },
+    { maxWait: 10_000, timeout: 10_000 },
+  );
 }
 
 /** Source routes (delete, ingest, file): the source's course must be accessible to this session (unknown source → the service's 404). */

@@ -102,7 +102,9 @@ export function LearnerGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPrivate = PRIVATE.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   // Keyed by path: each page fades in on navigation (CSS .page-in; off under prefers-reduced-motion).
-  if (!isPrivate || learner) return <div key={pathname} className="page-in flex flex-1 flex-col">{children}</div>;
+  if (!isPrivate || learner || pathname === "/tutor") {
+    return <div key={pathname} className="page-in flex flex-1 flex-col">{children}</div>;
+  }
   if (!ready) return <main className="mx-auto w-full max-w-3xl p-8 text-graphite">Checking your session…</main>;
   return (
     <main className="mx-auto w-full max-w-md px-4 py-20 text-center">

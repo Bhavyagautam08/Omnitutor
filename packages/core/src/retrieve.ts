@@ -3,8 +3,8 @@
 import { prisma } from "@sc/db";
 import type { Citation, SourceType } from "@sc/schemas";
 import { requireCourse } from "./course";
-import { notReady } from "./errors";
-import { embed } from "./llm";
+import { AppError, notReady } from "./errors";
+import { searchWithPython } from "./pythonApi";
 
 export type RetrievedChunk = {
   chunkId: string;
@@ -34,29 +34,42 @@ export function cosine(a: number[], b: number[]): number {
   return na && nb ? dot / Math.sqrt(na * nb) : 0;
 }
 
-export async function retrieve(query: string, opts: { courseId?: string; k?: number } = {}): Promise<{ results: RetrievedChunk[]; topScore: number; candidates: number }> {
+export async function retrieve(
+  query: string,
+  opts: { courseId?: string; k?: number; sessionToken?: string } = {},
+): Promise<{ results: RetrievedChunk[]; topScore: number; candidates: number }> {
   const courseId = await requireCourse(opts.courseId);
-  const chunks = await prisma.chunk.findMany({
+  const readyChunks = await prisma.chunk.count({
     where: { source: { courseId, status: "READY" }, NOT: { embedding: { isEmpty: true } } },
-    select: {
-      id: true, sourceId: true, kind: true, title: true, content: true, page: true, slide: true, tStart: true, tEnd: true, topicId: true, embedding: true,
-      source: { select: { type: true, filename: true } },
-    },
   });
-  if (chunks.length === 0) throw notReady("Nothing to search yet: upload a source and run ingest first.");
+  if (readyChunks === 0) throw notReady("Nothing to search yet: upload a source and run ingest first.");
+  if (!opts.sessionToken) throw new AppError("unauthorized", "Sign in before searching notebook content.");
 
-  const [q] = await embed([query], "RETRIEVAL_QUERY");
-  const ranked = chunks
-    .map((c) => ({ c, score: cosine(q, c.embedding) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, opts.k ?? 6);
+  const response = await searchWithPython({
+    notebookId: courseId,
+    query,
+    topK: opts.k ?? 6,
+    sessionToken: opts.sessionToken,
+  });
+  const results: RetrievedChunk[] = response.results.map((r) => ({
+    chunkId: r.chunk_id,
+    sourceId: r.source_id,
+    sourceType: r.source_type,
+    filename: r.filename,
+    kind: r.kind,
+    title: r.title,
+    content: r.content,
+    page: r.citation.page,
+    slide: r.citation.slide,
+    tStart: r.citation.timestamp_start,
+    tEnd: r.citation.timestamp_end,
+    topicId: r.topic_id,
+    score: r.score,
+  }));
   return {
-    candidates: chunks.length,
-    topScore: ranked[0]?.score ?? 0,
-    results: ranked.map(({ c, score }) => ({
-      chunkId: c.id, sourceId: c.sourceId, sourceType: c.source.type, filename: c.source.filename, kind: c.kind, title: c.title, content: c.content,
-      page: c.page, slide: c.slide, tStart: c.tStart, tEnd: c.tEnd, topicId: c.topicId, score,
-    })),
+    candidates: response.candidates,
+    topScore: results[0]?.score ?? 0,
+    results,
   };
 }
 

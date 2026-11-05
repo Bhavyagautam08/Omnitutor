@@ -12,6 +12,7 @@ import { requireCourse } from "./course";
 import { badRequest, notFound, notReady } from "./errors";
 import { deleteFile } from "./llm";
 import { inspectMedia } from "./media";
+import { deleteSourceFromPython } from "./pythonApi";
 import { UPLOADS_REL, resolveSourcePath, saveStream, uploadsDir } from "./storage";
 
 const toSourceView = (s: Source & { _count: { chunks: number } }): SourceView => ({
@@ -85,10 +86,17 @@ export async function listSources(courseId?: string): Promise<SourceView[]> {
 }
 
 /** Deletes the source, its chunks (cascade), the stored file and any Gemini Files API copy. */
-export async function deleteSource(id: string): Promise<DeleteSourceResponse> {
+export async function deleteSource(id: string, sessionToken?: string): Promise<DeleteSourceResponse> {
   const source = await prisma.source.findUnique({ where: { id } });
   if (!source) throw notFound(`Source "${id}" not found.`);
   if (source.status === "PROCESSING") throw notReady("This source is being processed. Delete it once it is READY or FAILED.");
+  if (sessionToken) {
+    await deleteSourceFromPython({
+      notebookId: source.courseId,
+      sourceId: id,
+      sessionToken,
+    });
+  }
   await prisma.source.delete({ where: { id } });
   await rm(resolveSourcePath(source.path), { force: true });
   if (source.geminiFileName) await deleteFile(source.geminiFileName).catch(() => {}); // remote copy expires in 48 h anyway
