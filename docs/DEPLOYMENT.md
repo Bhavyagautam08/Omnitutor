@@ -65,6 +65,30 @@ Set `/health/ready` as the health check path. The API checks PostgreSQL and Qdra
 so connection failures appear in the service logs and prevent it from becoming ready. The web
 service has `/api/health`.
 
+### Render demo deployment for the web app
+
+To support uploads with the current local-file implementation, deploy the Next.js app as a second
+Render Web Service instead of relying on the Vercel deployment:
+
+1. Create a Web Service for the same repository and `deployment-ready` branch. Leave **Root
+   Directory** unset so Render checks out the monorepo root.
+2. Set **Build Command** to `npm ci && npm run build -w @sc/web`.
+3. Set **Start Command** to `npm run start -w @sc/web`.
+4. Add a persistent disk mounted at `/opt/render/project/src/data`. The Node service must run as a
+   single instance. Persistent disks require a Render plan that supports disks.
+5. Add the web-service environment variables listed in
+   [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md). Set `NEXT_PUBLIC_API_MODE` before the
+   build. Set `PYTHON_API_URL` to the HTTPS origin of the Python Render service. Use the same
+   `DATABASE_URL` and `SESSION_SECRET` on both Render services.
+6. Apply Prisma migrations once to that `DATABASE_URL` using `npm run db:deploy` from the repository
+   root. Confirm the target database and branch before running this command.
+7. Deploy, then verify the web service at `/api/health` and the Python service at `/health/ready`.
+
+The browser uses the Next.js service's same-origin `/api/*` routes; those routes call the Python
+service server-to-server for retrieval. The Vercel deployment may remain available as a UI preview,
+but its uploads will not be durable with the current storage implementation. Use the Render web
+service URL as the working demo/resume link after it is deployed.
+
 ## Initial provisioning order
 
 1. Provision PostgreSQL, Qdrant, and Gemini access. Restrict PostgreSQL and Qdrant to application
