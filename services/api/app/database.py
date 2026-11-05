@@ -75,7 +75,13 @@ class Database:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Database:
-        return cls(create_async_engine(settings.sqlalchemy_database_url, pool_pre_ping=True))
+        return cls(
+            create_async_engine(
+                settings.sqlalchemy_database_url,
+                connect_args=settings.sqlalchemy_connect_args,
+                pool_pre_ping=True,
+            )
+        )
 
     async def close(self) -> None:
         await self.engine.dispose()

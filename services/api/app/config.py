@@ -36,7 +36,15 @@ class Settings(BaseSettings):
         query = dict(url.query)
         query.pop("schema", None)
         query.pop("channel_binding", None)
+        query.pop("sslmode", None)
         return url.set(drivername="postgresql+asyncpg", query=query).render_as_string(hide_password=False)
+
+    @property
+    def sqlalchemy_connect_args(self) -> dict[str, str]:
+        if not self.database_url:
+            raise ValueError("DATABASE_URL is required for PostgreSQL access")
+        sslmode = make_url(self.database_url).query.get("sslmode")
+        return {"ssl": sslmode} if sslmode else {}
 
 
 @lru_cache

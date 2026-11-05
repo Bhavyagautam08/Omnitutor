@@ -14,4 +14,5 @@ def test_asyncpg_url_drops_postgres_client_only_options() -> None:
     url = make_url(settings.sqlalchemy_database_url)
 
     assert url.drivername == "postgresql+asyncpg"
-    assert url.query == {"sslmode": "require"}
+    assert url.query == {}
+    assert settings.sqlalchemy_connect_args == {"ssl": "require"}

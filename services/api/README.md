@@ -22,8 +22,9 @@ Python service performs no DDL. It maps the existing `Learner`, `Course`, `Sourc
 tables with SQLAlchemy 2.x and asyncpg.
 
 The Python service adapts `DATABASE_URL` for asyncpg by removing Prisma's `schema` option and the
-PostgreSQL `channel_binding` option, which asyncpg does not support. Other connection options,
-including Neon `sslmode=require`, are retained.
+PostgreSQL `channel_binding` and `sslmode` options, which asyncpg does not accept as URL parameters.
+It passes `sslmode` through asyncpg's `ssl` connection argument instead (for example,
+`sslmode=require` remains TLS-required); other connection options are retained.
 
 Set `SESSION_SECRET` to the same value for both services (minimum 32 characters). If unset, Python
 reads the same `data/cache/session-secret` file used by the TypeScript session code. It does not
